@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
+import { ethers } from "ethers";
 import "./App.css";
+
+const CONTRACT_ADDRESS = "0x7135002F8799EE972a589c66CD77cc19E882A66B";
+const RITUAL_RPC_URL = "https://rpc.ritualfoundation.org";
+const RITUAL_CHAIN_ID_HEX = "0x7bb";
+const SUBMIT_FEE = "0.0001";
+
+const CONTRACT_ABI = [
+  "function submitScore(uint256 score,uint256 level,uint256 correct) external payable",
+  "function getLeaderboardLength() external view returns (uint256)",
+  "function getLeaderboardEntry(uint256 index) external view returns (address player,uint256 score,uint256 level,uint256 correct,uint256 timestamp)",
+];
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -33,8 +45,6 @@ const NOTE_FREQUENCIES = {
   B: 493.88,
 };
 
-const LEADERBOARD_KEY = "ritual-piano-battle-leaderboard";
-
 function getTimeLimitByLevel(level) {
   if (level === 1) return 5;
   if (level === 2) return 4;
@@ -56,7 +66,6 @@ function shortenAddress(address) {
 
 function playPianoSound(note, isCorrect) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
-
   if (!AudioContext) return;
 
   const audioContext = new AudioContext();
@@ -104,14 +113,16 @@ function App() {
   const [walletMessage, setWalletMessage] = useState("");
 
   const [leaderboard, setLeaderboard] = useState([]);
-  const [hasSavedResult, setHasSavedResult] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState("");
+  const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
 
   const timeLimit = getTimeLimitByLevel(level);
   const monsterName = getMonsterNameByLevel(level);
 
   useEffect(() => {
     checkConnectedWallet();
-    loadLeaderboard();
+    loadOnchainLeaderboard();
   }, []);
 
   useEffect(() => {
@@ -149,13 +160,6 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [gameStatus, timeLeft, isLocked]);
-
-  useEffect(() => {
-    if ((gameStatus === "win" || gameStatus === "lose") && !hasSavedResult) {
-      saveScoreToLeaderboard(gameStatus);
-      setHasSavedResult(true);
-    }
-  }, [gameStatus, hasSavedResult]);
 
   async function checkConnectedWallet() {
     if (!window.ethereum) return;
@@ -195,63 +199,106 @@ function App() {
     }
   }
 
-  function loadLeaderboard() {
-    const savedLeaderboard = localStorage.getItem(LEADERBOARD_KEY);
-
-    if (!savedLeaderboard) {
-      setLeaderboard([]);
-      return;
-    }
+  async function switchToRitualNetwork() {
+    if (!window.ethereum) return;
 
     try {
-      const parsedLeaderboard = JSON.parse(savedLeaderboard);
-      setLeaderboard(parsedLeaderboard);
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: RITUAL_CHAIN_ID_HEX }],
+      });
+    } catch (error) {
+      console.error(error);
+      throw new Error("Please switch MetaMask to Ritual Testnet.");
+    }
+  }
+
+  async function loadOnchainLeaderboard() {
+    try {
+      const provider = new ethers.JsonRpcProvider(RITUAL_RPC_URL);
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        provider
+      );
+
+      const lengthBigInt = await contract.getLeaderboardLength();
+      const length = Number(lengthBigInt);
+      const limit = Math.min(length, 20);
+      const results = [];
+
+      for (let i = length - 1; i >= Math.max(0, length - limit); i--) {
+        const entry = await contract.getLeaderboardEntry(i);
+
+        results.push({
+          id: `${i}-${entry.player}`,
+          player: shortenAddress(entry.player),
+          wallet: entry.player,
+          score: Number(entry.score),
+          level: Number(entry.level),
+          correct: Number(entry.correct),
+          totalNotes: 10,
+          result: Number(entry.correct) >= 6 ? "win" : "lose",
+          date: new Date(Number(entry.timestamp) * 1000).toLocaleString(),
+        });
+      }
+
+      const sorted = results.sort((a, b) => b.score - a.score).slice(0, 10);
+      setLeaderboard(sorted);
     } catch (error) {
       console.error(error);
       setLeaderboard([]);
     }
   }
 
-  function saveScoreToLeaderboard(result) {
-    const playerName = walletAddress
-      ? shortenAddress(walletAddress)
-      : "Guest Player";
-
-    const newEntry = {
-      id: crypto.randomUUID(),
-      player: playerName,
-      wallet: walletAddress || "",
-      score,
-      level,
-      correct: correctCount,
-      totalNotes: 10,
-      result,
-      date: new Date().toLocaleString(),
-    };
-
-    const currentLeaderboardRaw = localStorage.getItem(LEADERBOARD_KEY);
-    let currentLeaderboard = [];
-
-    if (currentLeaderboardRaw) {
-      try {
-        currentLeaderboard = JSON.parse(currentLeaderboardRaw);
-      } catch (error) {
-        console.error(error);
-        currentLeaderboard = [];
-      }
+  async function submitScoreOnchain() {
+    if (!window.ethereum) {
+      setSubmitMessage("MetaMask not found.");
+      return;
     }
 
-    const updatedLeaderboard = [...currentLeaderboard, newEntry]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+    if (!walletAddress) {
+      setSubmitMessage("Please connect wallet first.");
+      await connectWallet();
+      return;
+    }
 
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(updatedLeaderboard));
-    setLeaderboard(updatedLeaderboard);
-  }
+    if (score <= 0) {
+      setSubmitMessage("Score must be greater than 0.");
+      return;
+    }
 
-  function clearLeaderboard() {
-    localStorage.removeItem(LEADERBOARD_KEY);
-    setLeaderboard([]);
+    try {
+      setIsSubmitting(true);
+      setSubmitMessage("Waiting for MetaMask...");
+
+      await switchToRitualNetwork();
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        signer
+      );
+
+      const tx = await contract.submitScore(score, level, correctCount, {
+        value: ethers.parseEther(SUBMIT_FEE),
+      });
+
+      setSubmitMessage("Transaction submitted. Waiting confirmation...");
+
+      await tx.wait();
+
+      setHasSubmittedScore(true);
+      setSubmitMessage("Score submitted on-chain successfully!");
+      await loadOnchainLeaderboard();
+    } catch (error) {
+      console.error(error);
+      setSubmitMessage(error?.message || "Submit failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function randomNote() {
@@ -274,7 +321,8 @@ function App() {
     setFloatingText("");
     setTimeLeft(nextTimeLimit);
     setIsLocked(false);
-    setHasSavedResult(false);
+    setSubmitMessage("");
+    setHasSubmittedScore(false);
   }
 
   function startGame() {
@@ -403,8 +451,8 @@ function App() {
     setGameStatus("start");
   }
 
-  function openLeaderboard() {
-    loadLeaderboard();
+  async function openLeaderboard() {
+    await loadOnchainLeaderboard();
     setGameStatus("leaderboard");
   }
 
@@ -445,7 +493,9 @@ function App() {
               </button>
             </div>
 
-            <p className="daily-quest">Daily Quest: Win 1 battle today</p>
+            <p className="daily-quest">
+              Submit score fee: 0.0001 RITUAL testnet
+            </p>
           </div>
         </section>
       )}
@@ -453,11 +503,13 @@ function App() {
       {gameStatus === "leaderboard" && (
         <section className="result-screen">
           <div className="result-card leaderboard-card">
-            <p className="tag">Top Local Players</p>
+            <p className="tag">On-chain Scores</p>
             <h2>Leaderboard</h2>
 
             {leaderboard.length === 0 ? (
-              <p className="empty-leaderboard">No scores yet. Play one battle first.</p>
+              <p className="empty-leaderboard">
+                No on-chain scores yet. Play and submit your score.
+              </p>
             ) : (
               <div className="leaderboard-list">
                 {leaderboard.map((entry, index) => (
@@ -476,12 +528,10 @@ function App() {
               </div>
             )}
 
-            <button onClick={backHome}>Back Home</button>
-            {leaderboard.length > 0 && (
-              <button className="secondary" onClick={clearLeaderboard}>
-                Clear Leaderboard
-              </button>
-            )}
+            <button onClick={loadOnchainLeaderboard}>Refresh</button>
+            <button className="secondary" onClick={backHome}>
+              Back Home
+            </button>
           </div>
         </section>
       )}
@@ -578,7 +628,20 @@ function App() {
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
-            <button onClick={nextLevel}>Next Level</button>
+
+            <button onClick={submitScoreOnchain} disabled={isSubmitting || hasSubmittedScore}>
+              {hasSubmittedScore
+                ? "Submitted On-chain"
+                : isSubmitting
+                ? "Submitting..."
+                : "Submit Score On-chain"}
+            </button>
+
+            {submitMessage && <p>{submitMessage}</p>}
+
+            <button className="secondary" onClick={nextLevel}>
+              Next Level
+            </button>
             <button className="secondary" onClick={openLeaderboard}>
               View Leaderboard
             </button>
@@ -603,7 +666,18 @@ function App() {
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
-            <button onClick={() => resetBattleState(level)}>
+
+            <button onClick={submitScoreOnchain} disabled={isSubmitting || hasSubmittedScore}>
+              {hasSubmittedScore
+                ? "Submitted On-chain"
+                : isSubmitting
+                ? "Submitting..."
+                : "Submit Score On-chain"}
+            </button>
+
+            {submitMessage && <p>{submitMessage}</p>}
+
+            <button className="secondary" onClick={() => resetBattleState(level)}>
               Try This Level Again
             </button>
             <button className="secondary" onClick={openLeaderboard}>

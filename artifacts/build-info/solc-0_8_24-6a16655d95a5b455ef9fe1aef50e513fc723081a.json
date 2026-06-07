@@ -1,0 +1,42 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_24-6a16655d95a5b455ef9fe1aef50e513fc723081a",
+  "solcVersion": "0.8.24",
+  "solcLongVersion": "0.8.24+commit.e11b9ed9",
+  "compilerType": "solc",
+  "userSourceNameMap": {
+    "contracts/PianoBattleLeaderboard.sol": "project/contracts/PianoBattleLeaderboard.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "shanghai",
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/PianoBattleLeaderboard.sol": {
+        "content": "// SPDX-License-Identifier: MIT\r\npragma solidity ^0.8.24;\r\n\r\ncontract PianoBattleLeaderboard {\r\n    uint256 public constant SUBMIT_FEE = 0.0001 ether;\r\n    address public owner;\r\n\r\n    struct ScoreEntry {\r\n        address player;\r\n        uint256 score;\r\n        uint256 level;\r\n        uint256 correct;\r\n        uint256 timestamp;\r\n    }\r\n\r\n    ScoreEntry[] private leaderboard;\r\n\r\n    mapping(address => uint256) public bestScore;\r\n    mapping(address => uint256) public bestLevel;\r\n    mapping(address => uint256) public totalSubmissions;\r\n\r\n    event ScoreSubmitted(\r\n        address indexed player,\r\n        uint256 score,\r\n        uint256 level,\r\n        uint256 correct,\r\n        uint256 timestamp\r\n    );\r\n\r\n    event FeesWithdrawn(address indexed owner, uint256 amount);\r\n\r\n    constructor() {\r\n        owner = msg.sender;\r\n    }\r\n\r\n    function submitScore(\r\n        uint256 score,\r\n        uint256 level,\r\n        uint256 correct\r\n    ) external payable {\r\n        require(msg.value >= SUBMIT_FEE, \"Submit fee is 0.0001 RITUAL\");\r\n        require(score > 0, \"Score must be greater than 0\");\r\n        require(level > 0, \"Level must be greater than 0\");\r\n        require(correct <= 10, \"Correct count must be from 0 to 10\");\r\n\r\n        leaderboard.push(\r\n            ScoreEntry({\r\n                player: msg.sender,\r\n                score: score,\r\n                level: level,\r\n                correct: correct,\r\n                timestamp: block.timestamp\r\n            })\r\n        );\r\n\r\n        totalSubmissions[msg.sender] += 1;\r\n\r\n        if (score > bestScore[msg.sender]) {\r\n            bestScore[msg.sender] = score;\r\n            bestLevel[msg.sender] = level;\r\n        }\r\n\r\n        emit ScoreSubmitted(\r\n            msg.sender,\r\n            score,\r\n            level,\r\n            correct,\r\n            block.timestamp\r\n        );\r\n    }\r\n\r\n    function getLeaderboardLength() external view returns (uint256) {\r\n        return leaderboard.length;\r\n    }\r\n\r\n    function getLeaderboardEntry(\r\n        uint256 index\r\n    )\r\n        external\r\n        view\r\n        returns (\r\n            address player,\r\n            uint256 score,\r\n            uint256 level,\r\n            uint256 correct,\r\n            uint256 timestamp\r\n        )\r\n    {\r\n        require(index < leaderboard.length, \"Invalid index\");\r\n\r\n        ScoreEntry memory entry = leaderboard[index];\r\n\r\n        return (\r\n            entry.player,\r\n            entry.score,\r\n            entry.level,\r\n            entry.correct,\r\n            entry.timestamp\r\n        );\r\n    }\r\n\r\n    function getRecentScores(\r\n        uint256 limit\r\n    ) external view returns (ScoreEntry[] memory) {\r\n        uint256 length = leaderboard.length;\r\n\r\n        if (limit > length) {\r\n            limit = length;\r\n        }\r\n\r\n        ScoreEntry[] memory recentScores = new ScoreEntry[](limit);\r\n\r\n        for (uint256 i = 0; i < limit; i++) {\r\n            recentScores[i] = leaderboard[length - 1 - i];\r\n        }\r\n\r\n        return recentScores;\r\n    }\r\n\r\n    function withdrawFees() external {\r\n        require(msg.sender == owner, \"Only owner can withdraw\");\r\n\r\n        uint256 balance = address(this).balance;\r\n        require(balance > 0, \"No fees to withdraw\");\r\n\r\n        payable(owner).transfer(balance);\r\n\r\n        emit FeesWithdrawn(owner, balance);\r\n    }\r\n}"
+      }
+    }
+  }
+}
