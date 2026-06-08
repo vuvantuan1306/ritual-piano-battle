@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
+import ritualLogo from "./assets/ritual-logo.png";
+import siggyPiano from "./assets/siggy-piano.png";
 
 const CONTRACT_ADDRESS = "0x7135002F8799EE972a589c66CD77cc19E882A66B";
 const RITUAL_RPC_URL = "https://rpc.ritualfoundation.org";
@@ -464,38 +466,209 @@ function App() {
   return (
     <main className={`app ${battleEffect === "wrong" ? "screen-shake" : ""}`}>
       {gameStatus === "start" && (
-        <section className="start-screen">
-          <div className="hero-card">
-            <p className="tag">Web3 Arcade Mini Game</p>
-            <h1>Ritual Piano Battle</h1>
-            <p className="subtitle">
-              Hit the right notes, build combos, and defeat the noise monster.
-            </p>
+        <section className="start-screen home-screen">
+          <div className="hero-card home-hero-card">
+            <div className="home-topbar">
+              <div className="home-brand">
+                <img src={ritualLogo} alt="Ritual Logo" className="ritual-logo" />
+                <span className="brand-text">RITUAL</span>
+              </div>
 
-            <div className="wallet-box">
-              <button className="wallet-button" onClick={connectWallet}>
+              <div className="top-nav">
+                <button className="nav-link" onClick={() => setGameStatus("howto")}>
+                  How to Play
+                </button>
+
+                <button className="nav-link" onClick={openLeaderboard}>
+                  Leaderboard
+                </button>
+
+                <button className="nav-link" onClick={() => setGameStatus("about")}>
+                  About
+                </button>
+
+                <a
+                  className="nav-link nav-anchor"
+                  href="https://faucet.ritualfoundation.org/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Faucet
+                </a>
+              </div>
+
+              <button className="connect-wallet-top" onClick={connectWallet}>
                 {connectedWalletText}
               </button>
-              {walletMessage && <p>{walletMessage}</p>}
             </div>
 
-            <div className="level-preview">
-              <span>Level 1: 5s</span>
-              <span>Level 2: 4s</span>
-              <span>Level 3: 3s</span>
-              <span>Level 4+: 2s</span>
+            {walletMessage && <p className="wallet-status-top">{walletMessage}</p>}
+
+            <div className="home-hero-content">
+              <div className="home-left">
+                <div className="game-tag">🎮 WEB3 ARCADE MINI GAME</div>
+
+                <h1 className="home-title">
+                  <span className="title-main">RITUAL</span>
+                  <span className="title-sub">PIANO BATTLE</span>
+                </h1>
+
+                <p className="home-subtitle">
+                  Hit the right notes, build combos, defeat the noise monster,
+                  and submit your score on-chain.
+                </p>
+
+                <div className="home-levels">
+                  <span>🎵 Level 1: 5s</span>
+                  <span>🎵 Level 2: 4s</span>
+                  <span>🎵 Level 3: 3s</span>
+                  <span>🎵 Level 4+: 2s</span>
+                </div>
+
+                <div className="home-action-buttons">
+                  <button className="play-now-big" onClick={startGame}>
+                    ▶ PLAY NOW
+                  </button>
+
+                  <button className="leaderboard-big" onClick={openLeaderboard}>
+                    🏆 LEADERBOARD
+                  </button>
+                </div>
+              </div>
+
+              <div className="home-right">
+                <div className="siggy-stage">
+                  <img
+                    src={siggyPiano}
+                    alt="Siggy playing Ritual piano"
+                    className="siggy-hero-image"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="menu-buttons">
-              <button onClick={startGame}>Play Now</button>
-              <button className="secondary" onClick={openLeaderboard}>
-                Leaderboard
-              </button>
+            <div className="home-bottom-strip">
+              <div className="bottom-item">
+                <strong>🎮 Arcade Action</strong>
+                <span>Fast & Addictive</span>
+              </div>
+
+              <div className="bottom-item">
+                <strong>⚡ Build Combos</strong>
+                <span>Chain for Score</span>
+              </div>
+
+              <div className="bottom-item">
+                <strong>🏆 Climb Ranks</strong>
+                <span>Top the Leaderboard</span>
+              </div>
+
+              <div className="bottom-item">
+                <strong>💎 Web3 Powered</strong>
+                <span>On Ritual Testnet</span>
+              </div>
             </div>
 
-            <p className="daily-quest">
-              Submit score fee: 0.0001 RITUAL testnet
+            <div
+              className="creator-box"
+              style={{
+                position: "relative",
+                zIndex: 1,
+                margin: "18px auto 0",
+                justifyContent: "center",
+              }}
+            >
+              <span>Created by </span>
+              <a
+                href="https://x.com/vuvantuan1306"
+                target="_blank"
+                rel="noreferrer"
+              >
+                vuvantuan1306
+              </a>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {gameStatus === "howto" && (
+        <section className="result-screen">
+          <div className="result-card info-card">
+            <p className="tag">How to Play</p>
+            <h2>Ritual Piano Battle</h2>
+
+            <div className="info-list">
+              <div>
+                <strong>1. Connect Wallet</strong>
+                <span>Connect your MetaMask wallet on Ritual Testnet.</span>
+              </div>
+
+              <div>
+                <strong>2. Get Testnet RITUAL</strong>
+                <span>
+                  Use the Faucet button on the homepage to get testnet RITUAL.
+                </span>
+              </div>
+
+              <div>
+                <strong>3. Hit the Right Notes</strong>
+                <span>
+                  Press the piano key matching the falling note before time runs out.
+                </span>
+              </div>
+
+              <div>
+                <strong>4. Submit Score On-chain</strong>
+                <span>
+                  After battle, submit your score with a 0.0001 RITUAL testnet fee.
+                </span>
+              </div>
+            </div>
+
+            <button onClick={startGame}>Play Now</button>
+            <button className="secondary" onClick={backHome}>
+              Back Home
+            </button>
+          </div>
+        </section>
+      )}
+
+      {gameStatus === "about" && (
+        <section className="result-screen">
+          <div className="result-card info-card">
+            <p className="tag">About</p>
+            <h2>Web3 Piano Arcade</h2>
+
+            <p>
+              Ritual Piano Battle is a Web3 arcade mini game where players hit
+              piano notes, build combos, defeat noise monsters, and submit scores
+              on-chain.
             </p>
+
+            <p>
+              The game uses Ritual Testnet, wallet connection, on-chain score
+              submission, and a leaderboard powered by a smart contract.
+            </p>
+
+            <a
+              className="about-link"
+              href="https://faucet.ritualfoundation.org/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Get testnet RITUAL
+            </a>
+
+            <a
+              className="about-link"
+              href="https://x.com/vuvantuan1306"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Created by vuvantuan1306
+            </a>
+
+            <button onClick={backHome}>Back Home</button>
           </div>
         </section>
       )}
@@ -629,7 +802,10 @@ function App() {
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
 
-            <button onClick={submitScoreOnchain} disabled={isSubmitting || hasSubmittedScore}>
+            <button
+              onClick={submitScoreOnchain}
+              disabled={isSubmitting || hasSubmittedScore}
+            >
               {hasSubmittedScore
                 ? "Submitted On-chain"
                 : isSubmitting
@@ -667,7 +843,10 @@ function App() {
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
 
-            <button onClick={submitScoreOnchain} disabled={isSubmitting || hasSubmittedScore}>
+            <button
+              onClick={submitScoreOnchain}
+              disabled={isSubmitting || hasSubmittedScore}
+            >
               {hasSubmittedScore
                 ? "Submitted On-chain"
                 : isSubmitting
