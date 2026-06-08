@@ -7,8 +7,10 @@ import siggyPiano from "./assets/siggy-piano.png";
 const CONTRACT_ADDRESS = "0x7135002F8799EE972a589c66CD77cc19E882A66B";
 const RITUAL_RPC_URL = "https://rpc.ritualfoundation.org";
 const RITUAL_CHAIN_ID_HEX = "0x7bb";
+
 const SUBMIT_FEE = "0.0001";
 const LEVEL_UP_FEE = "0.001";
+
 const TOTAL_QUESTIONS = 10;
 const PASSING_CORRECT_COUNT = 5;
 const MAX_LEVEL = 7;
@@ -34,7 +36,20 @@ const DIFFICULTIES = {
   },
 };
 
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES = [
+  "C",
+  "C#",
+  "D",
+  "D#",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "G#",
+  "A",
+  "A#",
+  "B",
+];
 
 const LEVEL_KEY_CONFIG = {
   1: { white: 7, black: 5, start: "C4", end: "B4" },
@@ -116,6 +131,33 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function getFriendlyError(error) {
+  const message = String(
+    error?.shortMessage ||
+      error?.reason ||
+      error?.message ||
+      "Transaction failed."
+  );
+
+  if (
+    message.toLowerCase().includes("user rejected") ||
+    message.toLowerCase().includes("rejected") ||
+    message.toLowerCase().includes("denied")
+  ) {
+    return "Transaction rejected in MetaMask.";
+  }
+
+  if (message.toLowerCase().includes("insufficient funds")) {
+    return "Insufficient RITUAL balance for this transaction.";
+  }
+
+  if (message.toLowerCase().includes("switch")) {
+    return "Please switch MetaMask to Ritual Testnet.";
+  }
+
+  return "Transaction failed. Please try again.";
+}
+
 function playPianoSound(frequency, isCorrect) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
@@ -185,8 +227,13 @@ function App() {
     return getLevelKeys(level);
   }, [level]);
 
-  const activeWhiteCount = activePianoKeys.filter((key) => key.type === "white").length;
-  const activeBlackCount = activePianoKeys.filter((key) => key.type === "black").length;
+  const activeWhiteCount = activePianoKeys.filter(
+    (key) => key.type === "white"
+  ).length;
+
+  const activeBlackCount = activePianoKeys.filter(
+    (key) => key.type === "black"
+  ).length;
 
   useEffect(() => {
     checkConnectedWallet();
@@ -385,7 +432,8 @@ function App() {
           level: Number(entry.level),
           correct: Number(entry.correct),
           totalNotes: TOTAL_QUESTIONS,
-          result: Number(entry.correct) >= PASSING_CORRECT_COUNT ? "win" : "lose",
+          result:
+            Number(entry.correct) >= PASSING_CORRECT_COUNT ? "win" : "lose",
           date: new Date(Number(entry.timestamp) * 1000).toLocaleString(),
         });
       }
@@ -396,6 +444,23 @@ function App() {
       console.error(error);
       setLeaderboard([]);
     }
+  }
+
+  async function sendScoreTransaction(paymentAmount, statusSetter) {
+    await switchToRitualNetwork();
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    const tx = await contract.submitScore(score, level, correctCount, {
+      value: ethers.parseEther(paymentAmount),
+    });
+
+    statusSetter("Transaction submitted. Waiting for confirmation...");
+
+    await tx.wait();
+    await loadOnchainLeaderboard();
   }
 
   async function submitScoreOnchain() {
@@ -417,32 +482,15 @@ function App() {
 
     try {
       setIsSubmitting(true);
-      setSubmitMessage("Waiting for MetaMask...");
+      setSubmitMessage(`Submitting score for ${SUBMIT_FEE} RITUAL...`);
 
-      await switchToRitualNetwork();
-
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        CONTRACT_ABI,
-        signer
-      );
-
-      const tx = await contract.submitScore(score, level, correctCount, {
-        value: ethers.parseEther(SUBMIT_FEE),
-      });
-
-      setSubmitMessage("Transaction submitted. Waiting confirmation...");
-
-      await tx.wait();
+      await sendScoreTransaction(SUBMIT_FEE, setSubmitMessage);
 
       setHasSubmittedScore(true);
       setSubmitMessage("Score submitted on-chain successfully!");
-      await loadOnchainLeaderboard();
     } catch (error) {
       console.error(error);
-      setSubmitMessage(error?.message || "Submit failed.");
+      setSubmitMessage(getFriendlyError(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -460,6 +508,13 @@ function App() {
       return;
     }
 
+    if (correctCount < PASSING_CORRECT_COUNT) {
+      setLevelUpMessage(
+        `You need at least ${PASSING_CORRECT_COUNT}/${TOTAL_QUESTIONS} correct answers to unlock the next level.`
+      );
+      return;
+    }
+
     if (level >= MAX_LEVEL) {
       setLevelUpMessage("You already completed the final level.");
       return;
@@ -467,35 +522,23 @@ function App() {
 
     try {
       setIsLevelUpPaying(true);
-      setLevelUpMessage(`Pay ${LEVEL_UP_FEE} RITUAL to unlock Level ${level + 1}...`);
-
-      await switchToRitualNetwork();
-
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        CONTRACT_ABI,
-        signer
+      setLevelUpMessage(
+        `Paying ${LEVEL_UP_FEE} RITUAL, saving score, and unlocking Level ${
+          level + 1
+        }...`
       );
 
-      const tx = await contract.submitScore(score, level, correctCount, {
-        value: ethers.parseEther(LEVEL_UP_FEE),
-      });
+      await sendScoreTransaction(LEVEL_UP_FEE, setLevelUpMessage);
 
-      setLevelUpMessage("Level-up transaction submitted. Waiting confirmation...");
-
-      await tx.wait();
-
-      setLevelUpMessage(`Level ${level + 1} unlocked!`);
-      await loadOnchainLeaderboard();
+      setHasSubmittedScore(true);
+      setLevelUpMessage(`Score saved. Level ${level + 1} unlocked!`);
 
       setTimeout(() => {
         nextLevel();
-      }, 500);
+      }, 700);
     } catch (error) {
       console.error(error);
-      setLevelUpMessage(error?.message || "Level-up payment failed.");
+      setLevelUpMessage(getFriendlyError(error));
     } finally {
       setIsLevelUpPaying(false);
     }
@@ -547,8 +590,8 @@ function App() {
     setIsLocked(false);
   }
 
-  function finishRound(nextCorrectCount) {
-    if (nextCorrectCount >= PASSING_CORRECT_COUNT) {
+  function finishRound(finalCorrectCount) {
+    if (finalCorrectCount >= PASSING_CORRECT_COUNT) {
       if (level >= MAX_LEVEL) {
         setGameStatus("complete");
       } else {
@@ -574,13 +617,6 @@ function App() {
     setNotesPlayed(nextNotesPlayed);
     setMessage("Too slow! The monster attacks!");
     triggerEffect("wrong", "TIME OUT -5");
-
-    if (nextHp <= 0) {
-      setTimeout(() => {
-        setGameStatus("lose");
-      }, 500);
-      return;
-    }
 
     if (nextNotesPlayed >= TOTAL_QUESTIONS) {
       setTimeout(() => {
@@ -623,14 +659,6 @@ function App() {
       setHp(nextHp);
       setMessage("Miss! The monster attacks!");
       triggerEffect("wrong", "MISS -5");
-
-      if (nextHp <= 0) {
-        setNotesPlayed(nextNotesPlayed);
-        setTimeout(() => {
-          setGameStatus("lose");
-        }, 500);
-        return;
-      }
     }
 
     setNotesPlayed(nextNotesPlayed);
@@ -947,17 +975,17 @@ function App() {
               </div>
 
               <div>
-                <strong>4. Pay to Unlock the Next Level</strong>
+                <strong>4. Save Score & Unlock Next Level</strong>
                 <span>
-                  Every time you move to the next level, you pay 0.001 RITUAL on
-                  Ritual Testnet.
+                  When you pass a level, paying 0.001 RITUAL saves your score
+                  on-chain and unlocks the next level.
                 </span>
               </div>
 
               <div>
-                <strong>5. Submit Score On-chain</strong>
+                <strong>5. Cumulative Score</strong>
                 <span>
-                  You can submit your score to the on-chain leaderboard after a battle.
+                  Your score keeps increasing across levels until you restart from Level 1.
                 </span>
               </div>
             </div>
@@ -984,8 +1012,8 @@ function App() {
 
             <p>
               The game uses Ritual Testnet, wallet connection, level-up payments,
-              on-chain score submission, and a leaderboard powered by a smart
-              contract.
+              cumulative score progress, on-chain score submission, and a leaderboard
+              powered by a smart contract.
             </p>
 
             <a
@@ -1026,6 +1054,7 @@ function App() {
                 {leaderboard.map((entry, index) => (
                   <div className="leaderboard-row" key={entry.id}>
                     <div className="rank">#{index + 1}</div>
+
                     <div className="player-info">
                       <strong>{entry.player}</strong>
                       <span>
@@ -1033,6 +1062,7 @@ function App() {
                         {entry.result === "win" ? "Win" : "Lose"}
                       </span>
                     </div>
+
                     <div className="leader-score">{entry.score}</div>
                   </div>
                 ))}
@@ -1055,13 +1085,17 @@ function App() {
             <div>Score: {score}</div>
             <div className={combo >= 3 ? "combo-hot" : ""}>Combo: x{combo}</div>
             <div>Level: {level}/{MAX_LEVEL}</div>
+
             <div>
               Keys: {activeWhiteCount}W + {activeBlackCount}B
             </div>
+
             <div>Notes: {notesPlayed}/{TOTAL_QUESTIONS}</div>
+
             <div className={timeLeft <= 2 ? "time-danger" : ""}>
               Time: {timeLeft}s
             </div>
+
             <div>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </div>
@@ -1104,9 +1138,7 @@ function App() {
 
               <div className="sound-wave">〰️〰️〰️</div>
 
-              {combo >= 3 && (
-                <div className="combo-banner">COMBO x{combo}</div>
-              )}
+              {combo >= 3 && <div className="combo-banner">COMBO x{combo}</div>}
             </div>
 
             <div className="monster-card">
@@ -1140,7 +1172,7 @@ function App() {
             <p>{difficulty.label} Mode</p>
             <p>Level {level}/{MAX_LEVEL} completed</p>
             <p>{getLevelKeyText(level)}</p>
-            <p>Score: {score}</p>
+            <p>Cumulative Score: {score}</p>
             <p>
               Correct: {correctCount}/{TOTAL_QUESTIONS}
             </p>
@@ -1149,37 +1181,24 @@ function App() {
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
 
-            <button
-              onClick={payLevelUpFeeAndGoNext}
-              disabled={isLevelUpPaying}
-            >
+            <button onClick={payLevelUpFeeAndGoNext} disabled={isLevelUpPaying}>
               {isLevelUpPaying
-                ? "Paying..."
-                : `Pay ${LEVEL_UP_FEE} RITUAL & Unlock Level ${level + 1}`}
+                ? "Processing..."
+                : `Pay ${LEVEL_UP_FEE} RITUAL, Save Score & Unlock Level ${
+                    level + 1
+                  }`}
             </button>
 
             {levelUpMessage && <p>{levelUpMessage}</p>}
 
-            <button
-              className="secondary"
-              onClick={submitScoreOnchain}
-              disabled={isSubmitting || hasSubmittedScore}
-            >
-              {hasSubmittedScore
-                ? "Submitted On-chain"
-                : isSubmitting
-                ? "Submitting..."
-                : `Submit Score (${SUBMIT_FEE} RITUAL)`}
-            </button>
-
-            {submitMessage && <p>{submitMessage}</p>}
-
             <button className="secondary" onClick={openLeaderboard}>
               View Leaderboard
             </button>
+
             <button className="secondary" onClick={startGame}>
               Restart From Level 1
             </button>
+
             <button className="secondary" onClick={backHome}>
               Back Home
             </button>
@@ -1192,7 +1211,7 @@ function App() {
           <div className="result-card win-card">
             <h2>GAME COMPLETED!</h2>
             <p>You cleared all 7 levels in {difficulty.label} Mode.</p>
-            <p>Final Score: {score}</p>
+            <p>Final Cumulative Score: {score}</p>
             <p>
               Correct: {correctCount}/{TOTAL_QUESTIONS} on final level
             </p>
@@ -1216,9 +1235,11 @@ function App() {
             <button className="secondary" onClick={openLeaderboard}>
               View Leaderboard
             </button>
+
             <button className="secondary" onClick={startGame}>
               Play Again
             </button>
+
             <button className="secondary" onClick={backHome}>
               Back Home
             </button>
@@ -1234,12 +1255,13 @@ function App() {
             <p>{difficulty.label} Mode</p>
             <p>Level: {level}/{MAX_LEVEL}</p>
             <p>{getLevelKeyText(level)}</p>
-            <p>Score: {score}</p>
+            <p>Cumulative Score: {score}</p>
             <p>
               Correct: {correctCount}/{TOTAL_QUESTIONS}
             </p>
             <p>
-              Need at least {PASSING_CORRECT_COUNT}/{TOTAL_QUESTIONS} correct to clear the level.
+              Need at least {PASSING_CORRECT_COUNT}/{TOTAL_QUESTIONS} correct to clear
+              the level.
             </p>
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
@@ -1261,12 +1283,15 @@ function App() {
             <button className="secondary" onClick={() => resetBattleState(level)}>
               Try This Level Again
             </button>
+
             <button className="secondary" onClick={openLeaderboard}>
               View Leaderboard
             </button>
+
             <button className="secondary" onClick={startGame}>
               Restart From Level 1
             </button>
+
             <button className="secondary" onClick={backHome}>
               Back Home
             </button>
