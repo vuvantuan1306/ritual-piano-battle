@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
 import ritualLogo from "./assets/ritual-logo.png";
@@ -94,6 +94,8 @@ function playPianoSound(note, isCorrect) {
 }
 
 function App() {
+  const audioRef = useRef(null);
+
   const [gameStatus, setGameStatus] = useState("start");
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -119,12 +121,65 @@ function App() {
   const [submitMessage, setSubmitMessage] = useState("");
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
 
+  const [isMusicOn, setIsMusicOn] = useState(false);
+  const [musicMessage, setMusicMessage] = useState("");
+
   const timeLimit = getTimeLimitByLevel(level);
   const monsterName = getMonsterNameByLevel(level);
 
   useEffect(() => {
     checkConnectedWallet();
     loadOnchainLeaderboard();
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.volume = 0.28;
+
+    async function tryAutoPlay() {
+      try {
+        await audio.play();
+        setIsMusicOn(true);
+        setMusicMessage("");
+      } catch (error) {
+        console.warn("Autoplay blocked by browser:", error);
+        setIsMusicOn(false);
+        setMusicMessage("Click anywhere to start music");
+      }
+    }
+
+    async function unlockMusic() {
+      const currentAudio = audioRef.current;
+      if (!currentAudio) return;
+
+      try {
+        currentAudio.volume = 0.28;
+        await currentAudio.play();
+        setIsMusicOn(true);
+        setMusicMessage("");
+        removeUnlockEvents();
+      } catch (error) {
+        console.warn("Music unlock failed:", error);
+      }
+    }
+
+    function removeUnlockEvents() {
+      window.removeEventListener("pointerdown", unlockMusic);
+      window.removeEventListener("keydown", unlockMusic);
+      window.removeEventListener("touchstart", unlockMusic);
+    }
+
+    tryAutoPlay();
+
+    window.addEventListener("pointerdown", unlockMusic);
+    window.addEventListener("keydown", unlockMusic);
+    window.addEventListener("touchstart", unlockMusic);
+
+    return () => {
+      removeUnlockEvents();
+    };
   }, []);
 
   useEffect(() => {
@@ -162,6 +217,29 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [gameStatus, timeLeft, isLocked]);
+
+  async function toggleMusic() {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      audio.volume = 0.28;
+
+      if (isMusicOn) {
+        audio.pause();
+        setIsMusicOn(false);
+        setMusicMessage("Music off");
+        return;
+      }
+
+      await audio.play();
+      setIsMusicOn(true);
+      setMusicMessage("");
+    } catch (error) {
+      console.error(error);
+      setMusicMessage("Music file not found or blocked");
+    }
+  }
 
   async function checkConnectedWallet() {
     if (!window.ethereum) return;
@@ -463,8 +541,62 @@ function App() {
     ? shortenAddress(walletAddress)
     : "Connect Wallet";
 
+  const soundButtonStyle = {
+    position: "fixed",
+    top: "18px",
+    right: "18px",
+    zIndex: 9999,
+    width: "48px",
+    height: "48px",
+    borderRadius: "999px",
+    display: "grid",
+    placeItems: "center",
+    fontSize: "22px",
+    color: "#ffffff",
+    background: isMusicOn
+      ? "linear-gradient(135deg, #23e6ff, #8f5cff)"
+      : "rgba(10, 13, 34, 0.88)",
+    border: "1px solid rgba(141, 247, 255, 0.28)",
+    boxShadow: isMusicOn
+      ? "0 0 24px rgba(35, 230, 255, 0.45)"
+      : "0 0 18px rgba(0, 0, 0, 0.28)",
+  };
+
+  const musicMessageStyle = {
+    position: "fixed",
+    top: "72px",
+    right: "18px",
+    zIndex: 9999,
+    padding: "8px 12px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "#8df7ff",
+    background: "rgba(10, 13, 34, 0.82)",
+    border: "1px solid rgba(141, 247, 255, 0.16)",
+  };
+
   return (
     <main className={`app ${battleEffect === "wrong" ? "screen-shake" : ""}`}>
+      <audio
+        ref={audioRef}
+        src="/music/background.mp3"
+        loop
+        preload="auto"
+        autoPlay
+      />
+
+      <button
+        type="button"
+        style={soundButtonStyle}
+        onClick={toggleMusic}
+        title={isMusicOn ? "Turn music off" : "Turn music on"}
+      >
+        {isMusicOn ? "🔊" : "🔇"}
+      </button>
+
+      {musicMessage && <div style={musicMessageStyle}>{musicMessage}</div>}
+
       {gameStatus === "start" && (
         <section className="start-screen home-screen">
           <div className="hero-card home-hero-card">
