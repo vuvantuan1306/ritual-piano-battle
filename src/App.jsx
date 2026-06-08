@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
 import ritualLogo from "./assets/ritual-logo.png";
@@ -8,6 +8,10 @@ const CONTRACT_ADDRESS = "0x7135002F8799EE972a589c66CD77cc19E882A66B";
 const RITUAL_RPC_URL = "https://rpc.ritualfoundation.org";
 const RITUAL_CHAIN_ID_HEX = "0x7bb";
 const SUBMIT_FEE = "0.0001";
+const LEVEL_UP_FEE = "0.001";
+const TOTAL_QUESTIONS = 10;
+const PASSING_CORRECT_COUNT = 5;
+const MAX_LEVEL = 7;
 
 const CONTRACT_ABI = [
   "function submitScore(uint256 score,uint256 level,uint256 correct) external payable",
@@ -15,50 +19,96 @@ const CONTRACT_ABI = [
   "function getLeaderboardEntry(uint256 index) external view returns (address player,uint256 score,uint256 level,uint256 correct,uint256 timestamp)",
 ];
 
-const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-const PIANO_KEYS = [
-  { note: "C", type: "white" },
-  { note: "C#", type: "black" },
-  { note: "D", type: "white" },
-  { note: "D#", type: "black" },
-  { note: "E", type: "white" },
-  { note: "F", type: "white" },
-  { note: "F#", type: "black" },
-  { note: "G", type: "white" },
-  { note: "G#", type: "black" },
-  { note: "A", type: "white" },
-  { note: "A#", type: "black" },
-  { note: "B", type: "white" },
-];
-
-const NOTE_FREQUENCIES = {
-  C: 261.63,
-  "C#": 277.18,
-  D: 293.66,
-  "D#": 311.13,
-  E: 329.63,
-  F: 349.23,
-  "F#": 369.99,
-  G: 392.0,
-  "G#": 415.3,
-  A: 440.0,
-  "A#": 466.16,
-  B: 493.88,
+const DIFFICULTIES = {
+  easy: {
+    label: "Easy",
+    seconds: 10,
+  },
+  normal: {
+    label: "Normal",
+    seconds: 7,
+  },
+  hard: {
+    label: "Hard",
+    seconds: 5,
+  },
 };
 
-function getTimeLimitByLevel(level) {
-  if (level === 1) return 5;
-  if (level === 2) return 4;
-  if (level === 3) return 3;
-  return 2;
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const LEVEL_KEY_CONFIG = {
+  1: { white: 7, black: 5, start: "C4", end: "B4" },
+  2: { white: 14, black: 10, start: "C3", end: "B4" },
+  3: { white: 21, black: 15, start: "C3", end: "B5" },
+  4: { white: 28, black: 20, start: "C2", end: "B5" },
+  5: { white: 35, black: 25, start: "C2", end: "B6" },
+  6: { white: 42, black: 30, start: "C1", end: "B6" },
+  7: { white: 52, black: 36, start: "A0", end: "C8" },
+};
+
+function createPianoKeys() {
+  const keys = [];
+
+  for (let midi = 21; midi <= 108; midi++) {
+    const noteIndex = midi % 12;
+    const noteName = NOTE_NAMES[noteIndex];
+    const octave = Math.floor(midi / 12) - 1;
+    const isBlack = noteName.includes("#");
+    const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+
+    keys.push({
+      midi,
+      note: `${noteName}${octave}`,
+      label: `${noteName}${octave}`,
+      shortLabel: noteName,
+      type: isBlack ? "black" : "white",
+      frequency,
+    });
+  }
+
+  return keys;
+}
+
+const FULL_PIANO_KEYS = createPianoKeys();
+
+function getMidiByNote(note) {
+  const found = FULL_PIANO_KEYS.find((key) => key.note === note);
+  return found ? found.midi : 60;
+}
+
+function getLevelKeys(level) {
+  const config = LEVEL_KEY_CONFIG[level] || LEVEL_KEY_CONFIG[1];
+  const startMidi = getMidiByNote(config.start);
+  const endMidi = getMidiByNote(config.end);
+
+  return FULL_PIANO_KEYS.filter(
+    (key) => key.midi >= startMidi && key.midi <= endMidi
+  );
+}
+
+function getLevelKeyText(level) {
+  const config = LEVEL_KEY_CONFIG[level] || LEVEL_KEY_CONFIG[1];
+  return `${config.white} white + ${config.black} black`;
 }
 
 function getMonsterNameByLevel(level) {
   if (level === 1) return "Noise Monster";
   if (level === 2) return "Bass Beast";
   if (level === 3) return "Dark Synth";
+  if (level === 4) return "Chord Phantom";
+  if (level === 5) return "Tempo Wraith";
+  if (level === 6) return "Octave Titan";
   return "Ritual Boss";
+}
+
+function getMonsterIconByLevel(level) {
+  if (level === 1) return "👾";
+  if (level === 2) return "👺";
+  if (level === 3) return "👹";
+  if (level === 4) return "🦇";
+  if (level === 5) return "🧛";
+  if (level === 6) return "🐉";
+  return "🔥";
 }
 
 function shortenAddress(address) {
@@ -66,7 +116,7 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function playPianoSound(note, isCorrect) {
+function playPianoSound(frequency, isCorrect) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
 
@@ -75,10 +125,7 @@ function playPianoSound(note, isCorrect) {
   const gainNode = audioContext.createGain();
 
   oscillator.type = isCorrect ? "sine" : "sawtooth";
-  oscillator.frequency.setValueAtTime(
-    NOTE_FREQUENCIES[note] || 440,
-    audioContext.currentTime
-  );
+  oscillator.frequency.setValueAtTime(frequency || 440, audioContext.currentTime);
 
   gainNode.gain.setValueAtTime(0.18, audioContext.currentTime);
   gainNode.gain.exponentialRampToValueAtTime(
@@ -97,11 +144,13 @@ function App() {
   const audioRef = useRef(null);
 
   const [gameStatus, setGameStatus] = useState("start");
+  const [selectedDifficulty, setSelectedDifficulty] = useState("easy");
+
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
   const [level, setLevel] = useState(1);
   const [hp, setHp] = useState(3);
-  const [currentNote, setCurrentNote] = useState("G");
+  const [currentNote, setCurrentNote] = useState("C4");
   const [notesPlayed, setNotesPlayed] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [message, setMessage] = useState("Hit the right note!");
@@ -110,7 +159,7 @@ function App() {
   const [lastPressedNote, setLastPressedNote] = useState("");
   const [floatingText, setFloatingText] = useState("");
 
-  const [timeLeft, setTimeLeft] = useState(5);
+  const [timeLeft, setTimeLeft] = useState(DIFFICULTIES.easy.seconds);
   const [isLocked, setIsLocked] = useState(false);
 
   const [walletAddress, setWalletAddress] = useState("");
@@ -121,11 +170,23 @@ function App() {
   const [submitMessage, setSubmitMessage] = useState("");
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
 
+  const [isLevelUpPaying, setIsLevelUpPaying] = useState(false);
+  const [levelUpMessage, setLevelUpMessage] = useState("");
+
   const [isMusicOn, setIsMusicOn] = useState(false);
   const [musicMessage, setMusicMessage] = useState("");
 
-  const timeLimit = getTimeLimitByLevel(level);
+  const difficulty = DIFFICULTIES[selectedDifficulty];
+  const timeLimit = difficulty.seconds;
   const monsterName = getMonsterNameByLevel(level);
+  const monsterIcon = getMonsterIconByLevel(level);
+
+  const activePianoKeys = useMemo(() => {
+    return getLevelKeys(level);
+  }, [level]);
+
+  const activeWhiteCount = activePianoKeys.filter((key) => key.type === "white").length;
+  const activeBlackCount = activePianoKeys.filter((key) => key.type === "black").length;
 
   useEffect(() => {
     checkConnectedWallet();
@@ -217,6 +278,12 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [gameStatus, timeLeft, isLocked]);
+
+  function getRandomNoteForLevel(targetLevel) {
+    const keys = getLevelKeys(targetLevel);
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+    return randomKey.note;
+  }
 
   async function toggleMusic() {
     const audio = audioRef.current;
@@ -317,8 +384,8 @@ function App() {
           score: Number(entry.score),
           level: Number(entry.level),
           correct: Number(entry.correct),
-          totalNotes: 10,
-          result: Number(entry.correct) >= 6 ? "win" : "lose",
+          totalNotes: TOTAL_QUESTIONS,
+          result: Number(entry.correct) >= PASSING_CORRECT_COUNT ? "win" : "lose",
           date: new Date(Number(entry.timestamp) * 1000).toLocaleString(),
         });
       }
@@ -381,27 +448,75 @@ function App() {
     }
   }
 
-  function randomNote() {
-    return NOTES[Math.floor(Math.random() * NOTES.length)];
+  async function payLevelUpFeeAndGoNext() {
+    if (!window.ethereum) {
+      setLevelUpMessage("MetaMask not found.");
+      return;
+    }
+
+    if (!walletAddress) {
+      setLevelUpMessage("Please connect wallet first.");
+      await connectWallet();
+      return;
+    }
+
+    if (level >= MAX_LEVEL) {
+      setLevelUpMessage("You already completed the final level.");
+      return;
+    }
+
+    try {
+      setIsLevelUpPaying(true);
+      setLevelUpMessage(`Pay ${LEVEL_UP_FEE} RITUAL to unlock Level ${level + 1}...`);
+
+      await switchToRitualNetwork();
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        signer
+      );
+
+      const tx = await contract.submitScore(score, level, correctCount, {
+        value: ethers.parseEther(LEVEL_UP_FEE),
+      });
+
+      setLevelUpMessage("Level-up transaction submitted. Waiting confirmation...");
+
+      await tx.wait();
+
+      setLevelUpMessage(`Level ${level + 1} unlocked!`);
+      await loadOnchainLeaderboard();
+
+      setTimeout(() => {
+        nextLevel();
+      }, 500);
+    } catch (error) {
+      console.error(error);
+      setLevelUpMessage(error?.message || "Level-up payment failed.");
+    } finally {
+      setIsLevelUpPaying(false);
+    }
   }
 
   function resetBattleState(nextLevel = 1) {
-    const nextTimeLimit = getTimeLimitByLevel(nextLevel);
-
     setGameStatus("playing");
     setCombo(0);
     setLevel(nextLevel);
     setHp(3);
     setNotesPlayed(0);
     setCorrectCount(0);
-    setCurrentNote(randomNote());
+    setCurrentNote(getRandomNoteForLevel(nextLevel));
     setMessage(`Level ${nextLevel} started!`);
     setBattleEffect("");
     setLastPressedNote("");
     setFloatingText("");
-    setTimeLeft(nextTimeLimit);
+    setTimeLeft(timeLimit);
     setIsLocked(false);
     setSubmitMessage("");
+    setLevelUpMessage("");
     setHasSubmittedScore(false);
   }
 
@@ -426,15 +541,19 @@ function App() {
   }
 
   function goNextNote() {
-    setCurrentNote(randomNote());
-    setTimeLeft(getTimeLimitByLevel(level));
+    setCurrentNote(getRandomNoteForLevel(level));
+    setTimeLeft(timeLimit);
     setLastPressedNote("");
     setIsLocked(false);
   }
 
   function finishRound(nextCorrectCount) {
-    if (nextCorrectCount >= 6) {
-      setGameStatus("win");
+    if (nextCorrectCount >= PASSING_CORRECT_COUNT) {
+      if (level >= MAX_LEVEL) {
+        setGameStatus("complete");
+      } else {
+        setGameStatus("win");
+      }
     } else {
       setGameStatus("lose");
     }
@@ -463,7 +582,7 @@ function App() {
       return;
     }
 
-    if (nextNotesPlayed >= 10) {
+    if (nextNotesPlayed >= TOTAL_QUESTIONS) {
       setTimeout(() => {
         finishRound(correctCount);
       }, 500);
@@ -483,11 +602,12 @@ function App() {
     setLastPressedNote(note);
 
     const nextNotesPlayed = notesPlayed + 1;
+    const pressedKey = activePianoKeys.find((key) => key.note === note);
     const isCorrect = note === currentNote;
     const nextCorrectCount = correctCount + (isCorrect ? 1 : 0);
     const pointReward = 10 * level;
 
-    playPianoSound(note, isCorrect);
+    playPianoSound(pressedKey?.frequency || 440, isCorrect);
 
     if (isCorrect) {
       setScore((prev) => prev + pointReward);
@@ -515,7 +635,7 @@ function App() {
 
     setNotesPlayed(nextNotesPlayed);
 
-    if (nextNotesPlayed >= 10) {
+    if (nextNotesPlayed >= TOTAL_QUESTIONS) {
       setTimeout(() => {
         finishRound(nextCorrectCount);
       }, 500);
@@ -529,6 +649,8 @@ function App() {
 
   function backHome() {
     setGameStatus("start");
+    setSubmitMessage("");
+    setLevelUpMessage("");
   }
 
   async function openLeaderboard() {
@@ -588,6 +710,33 @@ function App() {
     border: "1px solid rgba(141, 247, 255, 0.22)",
     background: "rgba(14, 16, 40, 0.72)",
   };
+
+  const difficultyPanelStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: "12px",
+    maxWidth: "520px",
+    margin: "0 0 24px",
+  };
+
+  const getDifficultyButtonStyle = (difficultyKey) => ({
+    padding: "14px 12px",
+    borderRadius: "18px",
+    color: selectedDifficulty === difficultyKey ? "#07111e" : "#ffffff",
+    background:
+      selectedDifficulty === difficultyKey
+        ? "linear-gradient(135deg, #8df7ff, #ffcf62)"
+        : "rgba(10, 17, 44, 0.86)",
+    border:
+      selectedDifficulty === difficultyKey
+        ? "1px solid rgba(255, 255, 255, 0.45)"
+        : "1px solid rgba(141, 247, 255, 0.18)",
+    boxShadow:
+      selectedDifficulty === difficultyKey
+        ? "0 0 22px rgba(141, 247, 255, 0.35)"
+        : "none",
+    fontWeight: 900,
+  });
 
   return (
     <main className={`app ${battleEffect === "wrong" ? "screen-shake" : ""}`}>
@@ -659,15 +808,46 @@ function App() {
                 </h1>
 
                 <p className="home-subtitle">
-                  Hit the right notes, build combos, defeat the noise monster,
-                  and submit your score on-chain.
+                  Choose your mode, hit the right notes, clear 7 levels, and
+                  submit your score on-chain.
                 </p>
 
-                <div className="home-levels">
-                  <span>🎵 Level 1: 5s</span>
-                  <span>🎵 Level 2: 4s</span>
-                  <span>🎵 Level 3: 3s</span>
-                  <span>🎵 Level 4+: 2s</span>
+                <div style={difficultyPanelStyle}>
+                  <button
+                    type="button"
+                    style={getDifficultyButtonStyle("easy")}
+                    onClick={() => setSelectedDifficulty("easy")}
+                  >
+                    Easy
+                    <br />
+                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                      10s / question
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    style={getDifficultyButtonStyle("normal")}
+                    onClick={() => setSelectedDifficulty("normal")}
+                  >
+                    Normal
+                    <br />
+                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                      7s / question
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    style={getDifficultyButtonStyle("hard")}
+                    onClick={() => setSelectedDifficulty("hard")}
+                  >
+                    Hard
+                    <br />
+                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                      5s / question
+                    </span>
+                  </button>
                 </div>
 
                 <div className="home-action-buttons">
@@ -694,18 +874,18 @@ function App() {
 
             <div className="home-bottom-strip">
               <div className="bottom-item">
-                <strong>🎮 Arcade Action</strong>
-                <span>Fast & Addictive</span>
+                <strong>🎮 3 Game Modes</strong>
+                <span>Easy / Normal / Hard</span>
               </div>
 
               <div className="bottom-item">
-                <strong>⚡ Build Combos</strong>
-                <span>Chain for Score</span>
+                <strong>🎹 7 Levels</strong>
+                <span>From 12 keys to full 88 keys</span>
               </div>
 
               <div className="bottom-item">
-                <strong>🏆 Climb Ranks</strong>
-                <span>Top the Leaderboard</span>
+                <strong>⚡ Level Fee</strong>
+                <span>0.001 RITUAL to unlock next level</span>
               </div>
 
               <div className="bottom-item">
@@ -744,28 +924,40 @@ function App() {
 
             <div className="info-list">
               <div>
-                <strong>1. Connect Wallet</strong>
-                <span>Connect your MetaMask wallet on Ritual Testnet.</span>
-              </div>
-
-              <div>
-                <strong>2. Get Testnet RITUAL</strong>
+                <strong>1. Choose Your Mode</strong>
                 <span>
-                  Use the Faucet button on the homepage to get testnet RITUAL.
+                  Easy gives 10 seconds per question, Normal gives 7 seconds, and
+                  Hard gives 5 seconds.
                 </span>
               </div>
 
               <div>
-                <strong>3. Hit the Right Notes</strong>
+                <strong>2. Clear 7 Levels</strong>
                 <span>
-                  Press the piano key matching the falling note before time runs out.
+                  Level 1 starts with one octave. Level 7 unlocks the full 88-key piano.
                 </span>
               </div>
 
               <div>
-                <strong>4. Submit Score On-chain</strong>
+                <strong>3. Answer 10 Questions</strong>
                 <span>
-                  After battle, submit your score with a 0.0001 RITUAL testnet fee.
+                  Each level has 10 questions. Get at least 5 correct answers to
+                  clear the level.
+                </span>
+              </div>
+
+              <div>
+                <strong>4. Pay to Unlock the Next Level</strong>
+                <span>
+                  Every time you move to the next level, you pay 0.001 RITUAL on
+                  Ritual Testnet.
+                </span>
+              </div>
+
+              <div>
+                <strong>5. Submit Score On-chain</strong>
+                <span>
+                  You can submit your score to the on-chain leaderboard after a battle.
                 </span>
               </div>
             </div>
@@ -785,14 +977,15 @@ function App() {
             <h2>Web3 Piano Arcade</h2>
 
             <p>
-              Ritual Piano Battle is a Web3 arcade mini game where players hit
-              piano notes, build combos, defeat noise monsters, and submit scores
-              on-chain.
+              Ritual Piano Battle is a Web3 arcade mini game where players choose
+              a difficulty mode, hit piano notes, build combos, clear 7 levels, and
+              submit scores on-chain.
             </p>
 
             <p>
-              The game uses Ritual Testnet, wallet connection, on-chain score
-              submission, and a leaderboard powered by a smart contract.
+              The game uses Ritual Testnet, wallet connection, level-up payments,
+              on-chain score submission, and a leaderboard powered by a smart
+              contract.
             </p>
 
             <a
@@ -857,11 +1050,15 @@ function App() {
       {gameStatus === "playing" && (
         <section className="game-screen">
           <header className="battle-stats">
+            <div>Mode: {difficulty.label}</div>
             <div>HP: {"❤️".repeat(hp)}</div>
             <div>Score: {score}</div>
             <div className={combo >= 3 ? "combo-hot" : ""}>Combo: x{combo}</div>
-            <div>Level: {level}</div>
-            <div>Notes: {notesPlayed}/10</div>
+            <div>Level: {level}/{MAX_LEVEL}</div>
+            <div>
+              Keys: {activeWhiteCount}W + {activeBlackCount}B
+            </div>
+            <div>Notes: {notesPlayed}/{TOTAL_QUESTIONS}</div>
             <div className={timeLeft <= 2 ? "time-danger" : ""}>
               Time: {timeLeft}s
             </div>
@@ -871,7 +1068,9 @@ function App() {
           </header>
 
           <div className="level-info">
-            Level {level} • {monsterName} • Reward: +{10 * level} / note
+            {difficulty.label} Mode • Level {level}/{MAX_LEVEL} • {monsterName} •{" "}
+            {getLevelKeyText(level)} • Reward: +{10 * level} / note • Need{" "}
+            {PASSING_CORRECT_COUNT}/{TOTAL_QUESTIONS} correct
           </div>
 
           <div className="timer-bar">
@@ -883,11 +1082,7 @@ function App() {
 
           <section className={`battle-field ${battleEffect}`}>
             <div className="player-card">
-              <img
-                src={siggyPiano}
-                alt="Siggy"
-                style={siggyAvatarStyle}
-              />
+              <img src={siggyPiano} alt="Siggy" style={siggyAvatarStyle} />
               <p>Siggy</p>
               <p className="small-label">Music Fighter</p>
             </div>
@@ -915,24 +1110,23 @@ function App() {
             </div>
 
             <div className="monster-card">
-              <div className="character monster-character">
-                {level >= 4 ? "🐉" : level === 3 ? "👹" : level === 2 ? "👺" : "👾"}
-              </div>
+              <div className="character monster-character">{monsterIcon}</div>
               <p>{monsterName}</p>
               <p className="small-label">Dark Sound</p>
             </div>
           </section>
 
           <section className="piano">
-            {PIANO_KEYS.map((key) => (
+            {activePianoKeys.map((key) => (
               <button
                 key={key.note}
                 className={`piano-key ${key.type}-key ${
                   lastPressedNote === key.note ? "active-key" : ""
                 }`}
                 onClick={() => handleNoteClick(key.note)}
+                title={key.note}
               >
-                {key.note}
+                {level === 1 ? key.shortLabel : key.label}
               </button>
             ))}
           </section>
@@ -943,15 +1137,31 @@ function App() {
         <section className="result-screen">
           <div className="result-card win-card">
             <h2>LEVEL CLEAR!</h2>
-            <p>Level {level} completed</p>
+            <p>{difficulty.label} Mode</p>
+            <p>Level {level}/{MAX_LEVEL} completed</p>
+            <p>{getLevelKeyText(level)}</p>
             <p>Score: {score}</p>
-            <p>Correct: {correctCount}/10</p>
+            <p>
+              Correct: {correctCount}/{TOTAL_QUESTIONS}
+            </p>
             <p>Combo: x{combo}</p>
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
 
             <button
+              onClick={payLevelUpFeeAndGoNext}
+              disabled={isLevelUpPaying}
+            >
+              {isLevelUpPaying
+                ? "Paying..."
+                : `Pay ${LEVEL_UP_FEE} RITUAL & Unlock Level ${level + 1}`}
+            </button>
+
+            {levelUpMessage && <p>{levelUpMessage}</p>}
+
+            <button
+              className="secondary"
               onClick={submitScoreOnchain}
               disabled={isSubmitting || hasSubmittedScore}
             >
@@ -959,14 +1169,11 @@ function App() {
                 ? "Submitted On-chain"
                 : isSubmitting
                 ? "Submitting..."
-                : "Submit Score On-chain"}
+                : `Submit Score (${SUBMIT_FEE} RITUAL)`}
             </button>
 
             {submitMessage && <p>{submitMessage}</p>}
 
-            <button className="secondary" onClick={nextLevel}>
-              Next Level
-            </button>
             <button className="secondary" onClick={openLeaderboard}>
               View Leaderboard
             </button>
@@ -980,14 +1187,15 @@ function App() {
         </section>
       )}
 
-      {gameStatus === "lose" && (
+      {gameStatus === "complete" && (
         <section className="result-screen">
-          <div className="result-card lose-card">
-            <h2>BATTLE LOST</h2>
-            <p>{monsterName} wins...</p>
-            <p>Level: {level}</p>
-            <p>Score: {score}</p>
-            <p>Correct: {correctCount}/10</p>
+          <div className="result-card win-card">
+            <h2>GAME COMPLETED!</h2>
+            <p>You cleared all 7 levels in {difficulty.label} Mode.</p>
+            <p>Final Score: {score}</p>
+            <p>
+              Correct: {correctCount}/{TOTAL_QUESTIONS} on final level
+            </p>
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
@@ -1000,7 +1208,52 @@ function App() {
                 ? "Submitted On-chain"
                 : isSubmitting
                 ? "Submitting..."
-                : "Submit Score On-chain"}
+                : `Submit Final Score (${SUBMIT_FEE} RITUAL)`}
+            </button>
+
+            {submitMessage && <p>{submitMessage}</p>}
+
+            <button className="secondary" onClick={openLeaderboard}>
+              View Leaderboard
+            </button>
+            <button className="secondary" onClick={startGame}>
+              Play Again
+            </button>
+            <button className="secondary" onClick={backHome}>
+              Back Home
+            </button>
+          </div>
+        </section>
+      )}
+
+      {gameStatus === "lose" && (
+        <section className="result-screen">
+          <div className="result-card lose-card">
+            <h2>BATTLE LOST</h2>
+            <p>{monsterName} wins...</p>
+            <p>{difficulty.label} Mode</p>
+            <p>Level: {level}/{MAX_LEVEL}</p>
+            <p>{getLevelKeyText(level)}</p>
+            <p>Score: {score}</p>
+            <p>
+              Correct: {correctCount}/{TOTAL_QUESTIONS}
+            </p>
+            <p>
+              Need at least {PASSING_CORRECT_COUNT}/{TOTAL_QUESTIONS} correct to clear the level.
+            </p>
+            <p>
+              Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
+            </p>
+
+            <button
+              onClick={submitScoreOnchain}
+              disabled={isSubmitting || hasSubmittedScore}
+            >
+              {hasSubmittedScore
+                ? "Submitted On-chain"
+                : isSubmitting
+                ? "Submitting..."
+                : `Submit Score (${SUBMIT_FEE} RITUAL)`}
             </button>
 
             {submitMessage && <p>{submitMessage}</p>}
