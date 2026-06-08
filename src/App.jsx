@@ -576,6 +576,19 @@ function App() {
     border: "1px solid rgba(141, 247, 255, 0.16)",
   };
 
+  const siggyAvatarStyle = {
+    width: "112px",
+    height: "112px",
+    borderRadius: "24px",
+    objectFit: "cover",
+    objectPosition: "28% 26%",
+    display: "block",
+    margin: "0 auto 18px",
+    boxShadow: "0 0 28px rgba(111, 94, 255, 0.35)",
+    border: "1px solid rgba(141, 247, 255, 0.22)",
+    background: "rgba(14, 16, 40, 0.72)",
+  };
+
   return (
     <main className={`app ${battleEffect === "wrong" ? "screen-shake" : ""}`}>
       <audio
@@ -870,8 +883,12 @@ function App() {
 
           <section className={`battle-field ${battleEffect}`}>
             <div className="player-card">
-              <div className="character player-character">😼</div>
-              <p>Ritual Cat</p>
+              <img
+                src={siggyPiano}
+                alt="Siggy"
+                style={siggyAvatarStyle}
+              />
+              <p>Siggy</p>
               <p className="small-label">Music Fighter</p>
             </div>
 
