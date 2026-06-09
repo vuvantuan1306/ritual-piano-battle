@@ -158,6 +158,66 @@ function getFriendlyError(error) {
   return "Transaction failed. Please try again.";
 }
 
+function getCoachReview({
+  difficulty,
+  level,
+  correctCount,
+  notesPlayed,
+  score,
+  activeBlackCount,
+}) {
+  const accuracy = Math.round((correctCount / TOTAL_QUESTIONS) * 100);
+  const passed = correctCount >= PASSING_CORRECT_COUNT;
+
+  let grade = "Needs Practice";
+  if (accuracy >= 90) grade = "Excellent";
+  else if (accuracy >= 70) grade = "Strong";
+  else if (accuracy >= 50) grade = "Passed";
+
+  let speedNote = "Your timing was stable.";
+  if (difficulty.label === "Hard") {
+    speedNote = "Hard Mode is fast. Focus on instinctive note recognition.";
+  } else if (difficulty.label === "Normal") {
+    speedNote = "Normal Mode needs balanced speed and accuracy.";
+  } else {
+    speedNote = "Easy Mode gives more time. Use it to build clean accuracy.";
+  }
+
+  let weakPoint = "White-key recognition looks stable.";
+  if (activeBlackCount >= 5 && accuracy < 70) {
+    weakPoint =
+      "Black keys may be your weak point. Practice C#, D#, F#, G#, and A# patterns.";
+  } else if (correctCount >= 8) {
+    weakPoint =
+      "Your note recognition is strong. Push the next level with more confidence.";
+  }
+
+  let suggestion = "Replay this level once to make your reaction cleaner.";
+  if (passed && level < MAX_LEVEL) {
+    suggestion = `Unlock Level ${level + 1} and keep your cumulative score growing.`;
+  } else if (passed && level >= MAX_LEVEL) {
+    suggestion =
+      "Submit your final cumulative score and try a harder difficulty next.";
+  } else {
+    suggestion =
+      "Try again and aim for at least 5 correct answers to clear the level.";
+  }
+
+  const ritualNote = passed
+    ? "AI Skill Mode: Siggy detected enough performance quality to continue the Ritual training path."
+    : "AI Skill Mode: Siggy recommends another training run before unlocking the next challenge.";
+
+  return {
+    grade,
+    accuracy,
+    speedNote,
+    weakPoint,
+    suggestion,
+    ritualNote,
+    summary: `${correctCount}/${TOTAL_QUESTIONS} correct • ${notesPlayed}/${TOTAL_QUESTIONS} questions • cumulative score ${score}`,
+  };
+}
+
 function playPianoSound(frequency, isCorrect) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
@@ -227,13 +287,18 @@ function App() {
     return getLevelKeys(level);
   }, [level]);
 
-  const activeWhiteCount = activePianoKeys.filter(
-    (key) => key.type === "white"
-  ).length;
-
   const activeBlackCount = activePianoKeys.filter(
     (key) => key.type === "black"
   ).length;
+
+  const coachReview = getCoachReview({
+    difficulty,
+    level,
+    correctCount,
+    notesPlayed,
+    score,
+    activeBlackCount,
+  });
 
   useEffect(() => {
     checkConnectedWallet();
@@ -568,6 +633,10 @@ function App() {
     resetBattleState(1);
   }
 
+  function openStartPopup() {
+    setGameStatus("prestart");
+  }
+
   function nextLevel() {
     const newLevel = level + 1;
     resetBattleState(newLevel);
@@ -744,7 +813,7 @@ function App() {
     gridTemplateColumns: "repeat(3, 1fr)",
     gap: "12px",
     maxWidth: "520px",
-    margin: "0 0 24px",
+    margin: "0 auto 22px",
   };
 
   const getDifficultyButtonStyle = (difficultyKey) => ({
@@ -765,6 +834,114 @@ function App() {
         : "none",
     fontWeight: 900,
   });
+
+  const preStartCardStyle = {
+    maxWidth: "780px",
+    width: "92%",
+    padding: "34px 28px",
+    borderRadius: "34px",
+    textAlign: "center",
+    background:
+      "linear-gradient(145deg, rgba(21, 18, 52, 0.96), rgba(10, 22, 45, 0.96))",
+    border: "1px solid rgba(141, 247, 255, 0.18)",
+    boxShadow:
+      "0 0 50px rgba(143, 92, 255, 0.22), inset 0 0 40px rgba(35, 230, 255, 0.06)",
+  };
+
+  const startCircleStyle = {
+    width: "138px",
+    height: "138px",
+    borderRadius: "999px",
+    display: "grid",
+    placeItems: "center",
+    margin: "18px auto 26px",
+    border: "1px solid rgba(255, 255, 255, 0.5)",
+    background:
+      "linear-gradient(135deg, rgba(166, 66, 255, 1), rgba(35, 230, 255, 1))",
+    color: "#ffffff",
+    fontSize: "28px",
+    fontWeight: 1000,
+    letterSpacing: "1px",
+    boxShadow:
+      "0 0 34px rgba(35, 230, 255, 0.48), 0 0 62px rgba(166, 66, 255, 0.32)",
+    cursor: "pointer",
+  };
+
+  const guideBoxStyle = {
+    maxWidth: "620px",
+    margin: "0 auto",
+    padding: "18px",
+    borderRadius: "22px",
+    textAlign: "left",
+    background: "rgba(5, 10, 30, 0.58)",
+    border: "1px solid rgba(141, 247, 255, 0.13)",
+  };
+
+  const guideLineStyle = {
+    margin: "8px 0",
+    color: "#e6e7ff",
+    fontSize: "15px",
+    lineHeight: 1.5,
+  };
+
+  const aiCoachCardStyle = {
+    margin: "22px auto",
+    padding: "18px",
+    maxWidth: "720px",
+    borderRadius: "22px",
+    textAlign: "left",
+    background:
+      "linear-gradient(135deg, rgba(35, 230, 255, 0.12), rgba(143, 92, 255, 0.12))",
+    border: "1px solid rgba(141, 247, 255, 0.2)",
+    boxShadow: "0 0 30px rgba(35, 230, 255, 0.14)",
+  };
+
+  const aiCoachTitleStyle = {
+    margin: "0 0 12px",
+    color: "#8df7ff",
+    fontSize: "18px",
+    fontWeight: 900,
+  };
+
+  const aiCoachLineStyle = {
+    margin: "8px 0",
+    color: "#e6e7ff",
+    fontSize: "16px",
+    lineHeight: 1.45,
+  };
+
+  function renderAiCoachPanel() {
+    return (
+      <div style={aiCoachCardStyle}>
+        <p style={aiCoachTitleStyle}>🤖 Siggy AI Coach • Skill Mode Review</p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Grade:</strong> {coachReview.grade} •{" "}
+          <strong>Accuracy:</strong> {coachReview.accuracy}%
+        </p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Performance:</strong> {coachReview.summary}
+        </p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Timing:</strong> {coachReview.speedNote}
+        </p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Weak Point:</strong> {coachReview.weakPoint}
+        </p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Next Move:</strong> {coachReview.suggestion}
+        </p>
+
+        <p style={aiCoachLineStyle}>
+          <strong>Ritual Skill Note:</strong> {coachReview.ritualNote}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <main className={`app ${battleEffect === "wrong" ? "screen-shake" : ""}`}>
@@ -828,7 +1005,7 @@ function App() {
 
             <div className="home-hero-content">
               <div className="home-left">
-                <div className="game-tag">🎮 WEB3 ARCADE MINI GAME</div>
+                <div className="game-tag">🤖 AI SKILL MODE • WEB3 ARCADE GAME</div>
 
                 <h1 className="home-title">
                   <span className="title-main">RITUAL</span>
@@ -836,50 +1013,12 @@ function App() {
                 </h1>
 
                 <p className="home-subtitle">
-                  Choose your mode, hit the right notes, clear 7 levels, and
-                  submit your score on-chain.
+                  Choose your mode, train with Siggy AI Coach, clear 7 levels,
+                  and submit your cumulative score on-chain.
                 </p>
 
-                <div style={difficultyPanelStyle}>
-                  <button
-                    type="button"
-                    style={getDifficultyButtonStyle("easy")}
-                    onClick={() => setSelectedDifficulty("easy")}
-                  >
-                    Easy
-                    <br />
-                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
-                      10s / question
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    style={getDifficultyButtonStyle("normal")}
-                    onClick={() => setSelectedDifficulty("normal")}
-                  >
-                    Normal
-                    <br />
-                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
-                      7s / question
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    style={getDifficultyButtonStyle("hard")}
-                    onClick={() => setSelectedDifficulty("hard")}
-                  >
-                    Hard
-                    <br />
-                    <span style={{ fontSize: "12px", fontWeight: 700 }}>
-                      5s / question
-                    </span>
-                  </button>
-                </div>
-
                 <div className="home-action-buttons">
-                  <button className="play-now-big" onClick={startGame}>
+                  <button className="play-now-big" onClick={openStartPopup}>
                     ▶ PLAY NOW
                   </button>
 
@@ -902,8 +1041,8 @@ function App() {
 
             <div className="home-bottom-strip">
               <div className="bottom-item">
-                <strong>🎮 3 Game Modes</strong>
-                <span>Easy / Normal / Hard</span>
+                <strong>🤖 AI Skill Mode</strong>
+                <span>Siggy reviews your performance</span>
               </div>
 
               <div className="bottom-item">
@@ -913,7 +1052,7 @@ function App() {
 
               <div className="bottom-item">
                 <strong>⚡ Level Fee</strong>
-                <span>0.001 RITUAL to unlock next level</span>
+                <span>0.001 RITUAL saves score & unlocks</span>
               </div>
 
               <div className="bottom-item">
@@ -940,6 +1079,96 @@ function App() {
                 vuvantuan1306
               </a>
             </div>
+          </div>
+        </section>
+      )}
+
+      {gameStatus === "prestart" && (
+        <section className="result-screen">
+          <div style={preStartCardStyle}>
+            <p className="tag">Before You Start</p>
+
+            <h2 style={{ marginBottom: "10px" }}>Choose Your Battle Mode</h2>
+
+            <p style={{ color: "#cfd2ff", marginBottom: "22px" }}>
+              Select a difficulty, then press START to enter Ritual Piano Battle.
+            </p>
+
+            <div style={difficultyPanelStyle}>
+              <button
+                type="button"
+                style={getDifficultyButtonStyle("easy")}
+                onClick={() => setSelectedDifficulty("easy")}
+              >
+                Easy
+                <br />
+                <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                  10s / question
+                </span>
+              </button>
+
+              <button
+                type="button"
+                style={getDifficultyButtonStyle("normal")}
+                onClick={() => setSelectedDifficulty("normal")}
+              >
+                Normal
+                <br />
+                <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                  7s / question
+                </span>
+              </button>
+
+              <button
+                type="button"
+                style={getDifficultyButtonStyle("hard")}
+                onClick={() => setSelectedDifficulty("hard")}
+              >
+                Hard
+                <br />
+                <span style={{ fontSize: "12px", fontWeight: 700 }}>
+                  5s / question
+                </span>
+              </button>
+            </div>
+
+            <button type="button" style={startCircleStyle} onClick={startGame}>
+              START
+            </button>
+
+            <div style={guideBoxStyle}>
+              <p style={guideLineStyle}>
+                <strong>How to play:</strong>
+              </p>
+
+              <p style={guideLineStyle}>
+                1. Watch the note shown in the center of the screen.
+              </p>
+
+              <p style={guideLineStyle}>
+                2. Press the matching piano key before time runs out.
+              </p>
+
+              <p style={guideLineStyle}>
+                3. Each level has 10 questions. Get at least 5 correct answers to clear the level.
+              </p>
+
+              <p style={guideLineStyle}>
+                4. When you pass, pay 0.001 RITUAL to save your score on-chain and unlock the next level.
+              </p>
+
+              <p style={guideLineStyle}>
+                5. Your score keeps stacking across levels until you restart from Level 1.
+              </p>
+            </div>
+
+            <button
+              className="secondary"
+              style={{ marginTop: "20px", maxWidth: "260px" }}
+              onClick={backHome}
+            >
+              Back Home
+            </button>
           </div>
         </section>
       )}
@@ -983,14 +1212,15 @@ function App() {
               </div>
 
               <div>
-                <strong>5. Cumulative Score</strong>
+                <strong>5. Siggy AI Coach</strong>
                 <span>
-                  Your score keeps increasing across levels until you restart from Level 1.
+                  After each level, Siggy gives an AI-style review with accuracy,
+                  timing, weak points, and the next practice suggestion.
                 </span>
               </div>
             </div>
 
-            <button onClick={startGame}>Play Now</button>
+            <button onClick={openStartPopup}>Play Now</button>
             <button className="secondary" onClick={backHome}>
               Back Home
             </button>
@@ -1002,18 +1232,17 @@ function App() {
         <section className="result-screen">
           <div className="result-card info-card">
             <p className="tag">About</p>
-            <h2>Web3 Piano Arcade</h2>
+            <h2>AI-Native Web3 Piano Arcade</h2>
 
             <p>
               Ritual Piano Battle is a Web3 arcade mini game where players choose
               a difficulty mode, hit piano notes, build combos, clear 7 levels, and
-              submit scores on-chain.
+              submit cumulative scores on-chain.
             </p>
 
             <p>
-              The game uses Ritual Testnet, wallet connection, level-up payments,
-              cumulative score progress, on-chain score submission, and a leaderboard
-              powered by a smart contract.
+              AI Skill Mode adds Siggy AI Coach: an AI-style performance review
+              inspired by the Ritual builder ecosystem and Ritual dApp Skills.
             </p>
 
             <a
@@ -1081,16 +1310,14 @@ function App() {
         <section className="game-screen">
           <header className="battle-stats">
             <div>Mode: {difficulty.label}</div>
-            <div>HP: {"❤️".repeat(hp)}</div>
             <div>Score: {score}</div>
             <div className={combo >= 3 ? "combo-hot" : ""}>Combo: x{combo}</div>
-            <div>Level: {level}/{MAX_LEVEL}</div>
-
             <div>
-              Keys: {activeWhiteCount}W + {activeBlackCount}B
+              Level: {level}/{MAX_LEVEL}
             </div>
-
-            <div>Notes: {notesPlayed}/{TOTAL_QUESTIONS}</div>
+            <div>
+              Notes: {notesPlayed}/{TOTAL_QUESTIONS}
+            </div>
 
             <div className={timeLeft <= 2 ? "time-danger" : ""}>
               Time: {timeLeft}s
@@ -1102,9 +1329,7 @@ function App() {
           </header>
 
           <div className="level-info">
-            {difficulty.label} Mode • Level {level}/{MAX_LEVEL} • {monsterName} •{" "}
-            {getLevelKeyText(level)} • Reward: +{10 * level} / note • Need{" "}
-            {PASSING_CORRECT_COUNT}/{TOTAL_QUESTIONS} correct
+            {difficulty.label} Mode • Level {level}/{MAX_LEVEL} • {monsterName}
           </div>
 
           <div className="timer-bar">
@@ -1118,7 +1343,7 @@ function App() {
             <div className="player-card">
               <img src={siggyPiano} alt="Siggy" style={siggyAvatarStyle} />
               <p>Siggy</p>
-              <p className="small-label">Music Fighter</p>
+              <p className="small-label">AI Music Coach</p>
             </div>
 
             <div className="note-zone">
@@ -1170,7 +1395,9 @@ function App() {
           <div className="result-card win-card">
             <h2>LEVEL CLEAR!</h2>
             <p>{difficulty.label} Mode</p>
-            <p>Level {level}/{MAX_LEVEL} completed</p>
+            <p>
+              Level {level}/{MAX_LEVEL} completed
+            </p>
             <p>{getLevelKeyText(level)}</p>
             <p>Cumulative Score: {score}</p>
             <p>
@@ -1180,6 +1407,8 @@ function App() {
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
+
+            {renderAiCoachPanel()}
 
             <button onClick={payLevelUpFeeAndGoNext} disabled={isLevelUpPaying}>
               {isLevelUpPaying
@@ -1219,6 +1448,8 @@ function App() {
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
 
+            {renderAiCoachPanel()}
+
             <button
               onClick={submitScoreOnchain}
               disabled={isSubmitting || hasSubmittedScore}
@@ -1236,7 +1467,7 @@ function App() {
               View Leaderboard
             </button>
 
-            <button className="secondary" onClick={startGame}>
+            <button className="secondary" onClick={openStartPopup}>
               Play Again
             </button>
 
@@ -1253,7 +1484,9 @@ function App() {
             <h2>BATTLE LOST</h2>
             <p>{monsterName} wins...</p>
             <p>{difficulty.label} Mode</p>
-            <p>Level: {level}/{MAX_LEVEL}</p>
+            <p>
+              Level: {level}/{MAX_LEVEL}
+            </p>
             <p>{getLevelKeyText(level)}</p>
             <p>Cumulative Score: {score}</p>
             <p>
@@ -1266,6 +1499,8 @@ function App() {
             <p>
               Wallet: {walletAddress ? shortenAddress(walletAddress) : "Not connected"}
             </p>
+
+            {renderAiCoachPanel()}
 
             <button
               onClick={submitScoreOnchain}
@@ -1288,7 +1523,7 @@ function App() {
               View Leaderboard
             </button>
 
-            <button className="secondary" onClick={startGame}>
+            <button className="secondary" onClick={openStartPopup}>
               Restart From Level 1
             </button>
 
